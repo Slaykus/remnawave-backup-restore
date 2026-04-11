@@ -1856,7 +1856,8 @@ setup_auto_send() {
                 echo "$(t cron_variant)"
                 echo "  1) $(t cron_time)"
                 echo "  2) $(t cron_hourly)"
-                echo "  3) $(t cron_daily)"
+                echo "  3) $(t cron_every3h)"
+                echo "  4) $(t cron_daily)"
                 read -rp "$(t your_choice)" send_choice
                 echo ""
 
@@ -1905,6 +1906,9 @@ setup_auto_send() {
                     cron_times_to_write=("@hourly")
                     user_friendly_times_local="@hourly"
                 elif [[ "$send_choice" == "3" ]]; then
+                    cron_times_to_write=("0 */3 * * *")
+                    user_friendly_times_local="@every3h"
+                elif [[ "$send_choice" == "4" ]]; then
                     cron_times_to_write=("@daily")
                     user_friendly_times_local="@daily"
                 else
@@ -1945,7 +1949,7 @@ setup_auto_send() {
                 mv "$temp_crontab_file.tmp" "$temp_crontab_file"
 
                 for time_entry_local in "${cron_times_to_write[@]}"; do
-                    if [[ "$time_entry_local" == "@hourly" ]] || [[ "$time_entry_local" == "@daily" ]]; then
+                    if [[ "$time_entry_local" == "@hourly" ]] || [[ "$time_entry_local" == "@daily" ]] || [[ "$time_entry_local" == "0 */3 * * *" ]]; then
                         echo "$time_entry_local $SCRIPT_PATH backup >> /var/log/rw_backup_cron.log 2>&1" >> "$temp_crontab_file"
                     else
                         echo "$time_entry_local * * * $SCRIPT_PATH backup >> /var/log/rw_backup_cron.log 2>&1" >> "$temp_crontab_file"
