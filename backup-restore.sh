@@ -1293,6 +1293,71 @@ send_telegram_document() {
     fi
 }
 
+send_telegram_document_split() {
+    local file_path="$1"
+    local caption="$2"
+    local split_size_mb=49
+    local split_dir
+    split_dir=$(mktemp -d "$BACKUP_DIR/tg_split_XXXXXX")
+
+    print_message "INFO" "$(printf "$(t bk_tg_big)" "$(du -h "$file_path" | awk '{print $1}')")"
+
+    split -b "${split_size_mb}m" "$file_path" "$split_dir/part_"
+
+    local parts=("$split_dir"/part_*)
+    local total=${#parts[@]}
+
+    if [[ $total -eq 0 ]]; then
+        rm -rf "$split_dir"
+        return 1
+    fi
+
+    local i=1
+    for part in "${parts[@]}"; do
+        local part_size
+        part_size=$(du -h "$part" | awk '{print $1}')
+        print_message "INFO" "$(printf "$(t bk_tg_split_part)" "$i" "$total" "$part_size")"
+
+        local part_caption
+        if [[ $i -eq 1 ]]; then
+            part_caption="${caption}"$'\n'"📦 *Part ${i}/${total}*"
+        else
+            part_caption="📦 *Part ${i}/${total}*"
+        fi
+
+        local escaped_part_caption
+        escaped_part_caption=$(escape_markdown_v2 "$part_caption")
+
+        local form_params=(
+            -F chat_id="$CHAT_ID"
+            -F document=@"$part"
+            -F parse_mode="MarkdownV2"
+            -F caption="$escaped_part_caption"
+        )
+        if [[ -n "$TG_MESSAGE_THREAD_ID" ]]; then
+            form_params+=(-F message_thread_id="$TG_MESSAGE_THREAD_ID")
+        fi
+
+        local api_response http_code
+        api_response=$(curl -s -X POST ${TG_PROXY:+--proxy "$TG_PROXY"} "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
+            "${form_params[@]}" \
+            -w "%{http_code}" -o /dev/null 2>&1)
+        http_code="${api_response: -3}"
+
+        if [[ "$http_code" != "200" ]]; then
+            print_message "ERROR" "$(printf "$(t bk_tg_split_err)" "$i")"
+            rm -rf "$split_dir"
+            return 1
+        fi
+
+        i=$((i + 1))
+    done
+
+    rm -rf "$split_dir"
+    print_message "SUCCESS" "$(printf "$(t bk_tg_split_ok)" "$total")"
+    return 0
+}
+
 get_google_access_token() {
     if [[ -z "$GD_CLIENT_ID" || -z "$GD_CLIENT_SECRET" || -z "$GD_REFRESH_TOKEN" ]]; then
         print_message "ERROR" "$(t gd_not_set)"
@@ -1634,9 +1699,13 @@ METAEOF
             file_size_bytes=$(stat -c%s "$BACKUP_DIR/$BACKUP_FILE_FINAL" 2>/dev/null || stat -f%z "$BACKUP_DIR/$BACKUP_FILE_FINAL" 2>/dev/null || echo "0")
             local max_tg_size=$((50 * 1024 * 1024))
             if [[ "$file_size_bytes" -gt "$max_tg_size" ]]; then
-                print_message "ERROR" "$(printf "$(t bk_tg_big)" "$backup_size")"
-                print_message "INFO" "$(t bk_saved_local) ${BOLD}${BACKUP_DIR}/${BACKUP_FILE_FINAL}${RESET}"
-                send_telegram_message "⚠️ $(printf "$(t bk_tg_big_notify)" "$backup_size")" "None" 2>/dev/null
+                if send_telegram_document_split "$BACKUP_DIR/$BACKUP_FILE_FINAL" "$caption_text"; then
+                    print_message "SUCCESS" "$(t bk_tg_ok)"
+                else
+                    print_message "ERROR" "$(t bk_tg_err)"
+                    print_message "INFO" "$(t bk_saved_local) ${BOLD}${BACKUP_DIR}/${BACKUP_FILE_FINAL}${RESET}"
+                    send_telegram_message "⚠️ $(printf "$(t bk_tg_big_notify)" "$backup_size")" "None" 2>/dev/null
+                fi
             elif send_telegram_document "$BACKUP_DIR/$BACKUP_FILE_FINAL" "$caption_text"; then
                 print_message "SUCCESS" "$(t bk_tg_ok)"
             else
