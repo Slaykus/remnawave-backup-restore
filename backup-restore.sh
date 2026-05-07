@@ -12,7 +12,7 @@ RETAIN_BACKUPS_DAYS=7
 S3_RETAIN_DAYS=30
 SYMLINK_PATH="/usr/local/bin/rw-backup"
 REMNALABS_ROOT_DIR=""
-SCRIPT_REPO_URL="https://raw.githubusercontent.com/distillium/remnawave-backup-restore/main/backup-restore.sh"
+SCRIPT_REPO_URL="https://raw.githubusercontent.com/Slaykus/remnawave-backup-restore/main/backup-restore.sh"
 SCRIPT_RUN_PATH="$(realpath "$0")"
 GD_CLIENT_ID=""
 GD_CLIENT_SECRET=""
@@ -1299,12 +1299,18 @@ send_telegram_document_split() {
     local split_size_mb=49
     local split_dir
     split_dir=$(mktemp -d "$BACKUP_DIR/tg_split_XXXXXX")
+    local base_name
+    base_name="$(basename "$file_path")"
+    local part_prefix="${base_name%.tar.gz}_"
 
     print_message "INFO" "$(printf "$(t bk_tg_big)" "$(du -h "$file_path" | awk '{print $1}')")"
 
-    split -b "${split_size_mb}m" "$file_path" "$split_dir/part_"
+    if ! split -b "${split_size_mb}M" -d -a 2 --numeric-suffixes=1 --additional-suffix=".tar.gz.part" "$file_path" "$split_dir/$part_prefix"; then
+        rm -rf "$split_dir"
+        return 1
+    fi
 
-    local parts=("$split_dir"/part_*)
+    local parts=("$split_dir"/"$part_prefix"*)
     local total=${#parts[@]}
 
     if [[ $total -eq 0 ]]; then
@@ -1317,6 +1323,8 @@ send_telegram_document_split() {
         local part_size
         part_size=$(du -h "$part" | awk '{print $1}')
         print_message "INFO" "$(printf "$(t bk_tg_split_part)" "$i" "$total" "$part_size")"
+        local part_name
+        part_name="$(basename "$part")"
 
         local part_caption
         if [[ $i -eq 1 ]]; then
@@ -1330,7 +1338,7 @@ send_telegram_document_split() {
 
         local form_params=(
             -F chat_id="$CHAT_ID"
-            -F document=@"$part"
+            -F document=@"$part;filename=$part_name"
             -F parse_mode="MarkdownV2"
             -F caption="$escaped_part_caption"
         )
@@ -1795,7 +1803,7 @@ METAEOF
                             done
                             
                             local auto_update_msg="✅ *$(t tg_auto_updated)* ${CURRENT_VERSION} *$(t tg_auto_updated_to)* ${REMOTE_VERSION_LATEST}"
-                            local release_url="https://github.com/distillium/remnawave-backup-restore/releases/tag/${REMOTE_VERSION_LATEST}"
+                            local release_url="https://github.com/Slaykus/remnawave-backup-restore/releases/tag/${REMOTE_VERSION_LATEST}"
                             local keyboard="{\"inline_keyboard\":[[{\"text\":\"$(t tg_auto_update_changelog)\",\"url\":\"${release_url}\"}]]}"
 
                             curl -s -X POST ${TG_PROXY:+--proxy "$TG_PROXY"} "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
